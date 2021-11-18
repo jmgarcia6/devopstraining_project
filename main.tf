@@ -59,6 +59,7 @@ resource "aws_instance" "jenkins" {
   provisioner "remote-exec" {
     # install Java, Python 3.8, Jenkins
     inline = [
+      “/usr/bin/cloud-init status --wait”,
       "wget -q -O - https://pkg.jenkins.io/debian-stable/jenkins.io.key | sudo apt-key add -",
       "sudo sh -c 'echo deb http://pkg.jenkins.io/debian-stable binary/ > /etc/apt/sources.list.d/jenkins.list'",
       "sudo apt update",
