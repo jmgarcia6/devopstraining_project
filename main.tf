@@ -1,48 +1,45 @@
-terraform {
-  required_version = ">= 0.12"
-}
 provider "aws" {
-  region = var.aws_region
+  profile = "default"
+  region = var.region
 }
+
+resource "tls_private_key" "this" {
+  algorithm = "RSA"
+}
+
 resource "aws_security_group" "jenkins_sg" {
   name        = "jenkins_sg"
-  description = "Allow Jenkins Traffic"
-  vpc_id      = var.vpc_id
+  description = "Allow ssh and standard http/https ports inbound and everything outbound"
 
-  ingress {
-    description      = "Allow from Personal CIDR block"
-    from_port        = 8080
-    to_port          = 8080
-    protocol         = "tcp"
-    cidr_blocks      = [var.cidr_block]
-  }
-
-  ingress {
-    description      = "Allow SSH from Personal CIDR block"
-    from_port        = 22
-    to_port          = 22
-    protocol         = "tcp"
-    cidr_blocks      = [var.cidr_block]
+  dynamic "ingress" {
+    iterator = port
+    for_each = var.ingress_port_rules
+    content {
+      from_port   = port.value
+      to_port     = port.value
+      protocol    = "TCP"
+      cidr_blocks = ["0.0.0.0/0"]
+    }
   }
 
   egress {
-    from_port        = 0
-    to_port          = 0
-    protocol         = "-1"
-    cidr_blocks      = ["0.0.0.0/0"]
-    ipv6_cidr_blocks = ["::/0"]
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
   }
 
   tags = {
-    Name = "Jenkins SG"
+    "Terraform" = "true"
   }
 }
-data "aws_ami" "amazon_linux" {
+
+data "aws_ami" "ubuntu" {
   most_recent = true
 
   filter {
     name   = "name"
-    values = ["amzn2-ami-hvm-2.0*"]
+    values = ["ubuntu/images/hvm-ssd/ubuntu-focal-20.04-amd64-server-*"]
   }
 
   filter {
@@ -50,20 +47,38 @@ data "aws_ami" "amazon_linux" {
     values = ["hvm"]
   }
 
-  filter {
-    name   = "root-device-type"
-    values = ["ebs"]
+  owners = ["099720109477"]
+}
+
+resource "aws_instance" "jenkins" {
+  ami           = data.aws_ami.ubuntu.id
+  instance_type = var.instance_type
+  security_groups = [aws_security_group.jenkins_sg.name]
+  key_name = var.key_name
+  
+  provisioner "remote-exec" {
+    # install Java, Python 3.8, Jenkins
+    inline = [
+      "wget -q -O - https://pkg.jenkins.io/debian-stable/jenkins.io.key | sudo apt-key add -",
+      "sudo sh -c 'echo deb http://pkg.jenkins.io/debian-stable binary/ > /etc/apt/sources.list.d/jenkins.list'",
+      "sudo apt update",
+      "sudo apt install -y openjdk-11-jdk",
+      "sudo apt install -y python3.8",
+      "sudo apt install -y jenkins",
+      "sudo systemctl start jenkins",
+      "sudo ufw allow 8080",
+    ]
   }
 
-  owners = ["amazon"] # Canonical
-}
-resource "aws_instance" "web" {
-  ami             = data.aws_ami.amazon_linux.id
-  instance_type   = "t2.micro"
-  key_name        = var.key_name
-  security_groups = [aws_security_group.jenkins_sg.name]
-  user_data       = "${file("install_jenkins.sh")}"
+  connection {
+    type        = "ssh"
+    host        = self.public_ip
+    user        = var.ssh_user_name
+    private_key = file(var.ssh_private_key_file)
+  }
+  
   tags = {
-    Name = "Jenkins"
+    Name = var.instance_name
+    "Terraform" = "true"
   }
 }
