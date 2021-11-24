@@ -3,10 +3,6 @@ provider "aws" {
   region = var.region
 }
 
-resource "tls_private_key" "this" {
-  algorithm = "RSA"
-}
-
 resource "aws_security_group" "jenkins_sg" {
   name        = "jenkins_sg"
   description = "Allow ssh and standard http/https ports inbound and everything outbound"
